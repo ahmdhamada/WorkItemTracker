@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+client/node_modules/
+client/dist/
+.nuget-user/
+.vs/
+**/.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

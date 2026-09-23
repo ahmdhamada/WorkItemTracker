@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="WorkItems.Api/WorkItems.Api.csproj" />
+  <Project Path="WorkItems.Tests/WorkItems.Tests.csproj" />
+</Solution>
