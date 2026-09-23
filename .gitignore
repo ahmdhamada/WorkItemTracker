@@ -9,3 +9,5 @@ client/dist/
 *.user
 *.userosscache
 *.sln.docstates
+.client-check/
+.npm-cache/
