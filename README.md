@@ -2,6 +2,8 @@
 
 A small work item tracker with an ASP.NET Core 8 API, Angular 18 standalone client, and SQL Server persistence.
 
+The API controller is an HTTP adapter only: it validates request-bound inputs and translates service outcomes to HTTP responses. `WorkItemsService` owns database queries and application workflows, while the `WorkItem` domain model enforces the allowed status transitions.
+
 ## Run it
 
 1. Install .NET 8 SDK, Node.js, npm, and SQL Server (LocalDB works on Windows).
@@ -21,7 +23,7 @@ The API creates the database schema at startup. For production schema evolution,
 
 ## Assumptions
 
-- Titles are trimmed and must contain a non-whitespace character; descriptions are optional and limited to 4,000 characters by the database model.
+- Titles are trimmed and must contain a non-whitespace character; descriptions are optional and limited to 4,000 characters by request and database validation.
 - Title search is a case-insensitive substring search under typical SQL Server collations; results sort newest first. Pagination is one-based, defaults to 20 rows, and caps at 100.
 - Status strings accept case-insensitive enum spelling. Only the next sequential status is accepted; same-status requests and backward or skipped changes return 409.
 - Created timestamps are UTC. IDs are database-generated integers. Invalid query enum values and request validation errors return 400; missing IDs return 404.

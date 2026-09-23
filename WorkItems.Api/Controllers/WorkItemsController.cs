@@ -1,44 +1,64 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using WorkItems.Api.Contracts;
-using WorkItems.Api.Data;
 using WorkItems.Api.Models;
+using WorkItems.Api.Services;
+
 namespace WorkItems.Api.Controllers;
+
 [ApiController, Route("api/work-items")]
-public sealed class WorkItemsController(WorkItemsDbContext db) : ControllerBase
+public sealed class WorkItemsController(IWorkItemsService workItems) : ControllerBase
 {
     [HttpPost]
-    public async Task<ActionResult<WorkItemResponse>> Create(CreateWorkItemRequest request, CancellationToken ct)
+    [ProducesResponseType<WorkItemResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<WorkItemResponse>> Create(CreateWorkItemRequest request, CancellationToken cancellationToken)
     {
-        var title = request.Title.Trim();
-        if (title.Length == 0) return BadRequest(new ProblemDetails { Title = "Title is required." });
-        var item = new WorkItem { Title = title, Description = request.Description, CreatedAt = DateTimeOffset.UtcNow };
-        db.WorkItems.Add(item); await db.SaveChangesAsync(ct);
-        return CreatedAtAction(nameof(GetById), new { id = item.Id }, ToResponse(item));
+        var result = await workItems.CreateAsync(request.Title, request.Description, cancellationToken);
+        if (!result.Succeeded)
+            return BadRequest(new ProblemDetails { Title = "Title must contain at least one non-whitespace character." });
+
+        return CreatedAtAction(nameof(GetById), new { id = result.Value!.Id }, result.Value);
     }
+
     [HttpGet]
-    public async Task<ActionResult<PagedResponse<WorkItemResponse>>> List([FromQuery] string? title, [FromQuery] WorkItemStatus? status,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+    [ProducesResponseType<PagedResponse<WorkItemResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<PagedResponse<WorkItemResponse>>> List(
+        [FromQuery] string? title,
+        [FromQuery] WorkItemStatus? status,
+        [FromQuery, Range(1, int.MaxValue)] int page = 1,
+        [FromQuery, Range(1, 100)] int pageSize = 20,
+        CancellationToken cancellationToken = default)
     {
-        if (page < 1 || pageSize < 1 || pageSize > 100) return BadRequest(new ProblemDetails { Title = "Page must be >= 1 and pageSize between 1 and 100." });
-        var query = db.WorkItems.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(title)) query = query.Where(x => x.Title.Contains(title.Trim()));
-        if (status.HasValue) query = query.Where(x => x.Status == status.Value);
-        var count = await query.CountAsync(ct);
-        var items = await query.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
-        return Ok(new PagedResponse<WorkItemResponse>(items.Select(ToResponse).ToList(), page, pageSize, count));
+        var result = await workItems.ListAsync(title, status, page, pageSize, cancellationToken);
+        return Ok(result);
     }
+
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<WorkItemResponse>> GetById(int id, CancellationToken ct)
-    { var item = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct); return item is null ? NotFound() : Ok(ToResponse(item)); }
-    [HttpPatch("{id:int}/status")]
-    public async Task<IActionResult> UpdateStatus(int id, UpdateStatusRequest request, CancellationToken ct)
+    [ProducesResponseType<WorkItemResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<WorkItemResponse>> GetById(int id, CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<WorkItemStatus>(request.Status, true, out var next) || !Enum.IsDefined(next)) return BadRequest(new ProblemDetails { Title = "Status must be Todo, InProgress, or Done." });
-        var item = await db.WorkItems.FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (item is null) return NotFound();
-        if ((int)next != (int)item.Status + 1) return Conflict(new ProblemDetails { Title = $"Cannot change status from {item.Status} to {next}." });
-        item.Status = next; await db.SaveChangesAsync(ct); return Ok(ToResponse(item));
+        var result = await workItems.GetByIdAsync(id, cancellationToken);
+        return result.Succeeded ? Ok(result.Value) : NotFound();
     }
-    private static WorkItemResponse ToResponse(WorkItem x) => new(x.Id, x.Title, x.Description, x.Status, x.CreatedAt);
+
+    [HttpPatch("{id:int}/status")]
+    [ProducesResponseType<WorkItemResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<WorkItemResponse>> UpdateStatus(int id, UpdateStatusRequest request, CancellationToken cancellationToken)
+    {
+        var result = await workItems.ChangeStatusAsync(id, request.Status, cancellationToken);
+        return result.Error switch
+        {
+            WorkItemError.None => Ok(result.Value),
+            WorkItemError.InvalidStatus => BadRequest(new ProblemDetails { Title = "Status must be Todo, InProgress, or Done." }),
+            WorkItemError.NotFound => NotFound(),
+            WorkItemError.InvalidTransition => Conflict(new ProblemDetails { Title = "The requested status transition is not allowed." }),
+            _ => StatusCode(StatusCodes.Status500InternalServerError)
+        };
+    }
 }
