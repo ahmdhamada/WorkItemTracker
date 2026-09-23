@@ -9,8 +9,9 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddScoped<IWorkItemsService, WorkItemsService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddDbContext<WorkItemsDbContext>(options => options.UseSqlServer(
-    builder.Configuration.GetConnectionString("WorkItems") ?? "Server=(localdb)\\MSSQLLocalDB;Database=WorkItems;Trusted_Connection=True;TrustServerCertificate=True"));
+var connectionString = builder.Configuration.GetConnectionString("WorkItems")
+    ?? throw new InvalidOperationException("Connection string 'WorkItems' is not configured.");
+builder.Services.AddDbContext<WorkItemsDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins(builder.Configuration["FrontendOrigin"] ?? "http://localhost:4200").AllowAnyHeader().AllowAnyMethod()));
 var app = builder.Build();
